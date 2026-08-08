@@ -55,6 +55,12 @@ DELETED_LOG_CACHE_SIZE = 300
 # ---------------------------------------------------------------------------
 # State
 # ---------------------------------------------------------------------------
+# Python 3.12+ (Render's default runtime) no longer auto-creates an event
+# loop for the main thread. Telethon's client needs one to exist BEFORE it's
+# constructed, so we create and set it explicitly here.
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
+
 client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
 away_mode = {"on": False, "message": ""}
@@ -321,4 +327,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    loop.run_until_complete(main())

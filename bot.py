@@ -52,6 +52,29 @@ TELEGRAM_SERVICE_ID = 777000
 # How many recent messages per chat to keep in memory for the deleted-message log
 DELETED_LOG_CACHE_SIZE = 300
 
+# Persian "glass panel" style command menu, shown by .panel / .پنل
+PANEL_TEXT = (
+    "╭───────────────────╮\n"
+    "   **✨ پنل WAHID FX ✨**\n"
+    "╰───────────────────╯\n\n"
+    "**🌙 حالت آفلاین**\n"
+    "`.away <پیام>`  →  روشن کردن پاسخ خودکار\n"
+    "`.back`  →  خاموش کردن\n\n"
+    "**⏰ یادآوری**\n"
+    "`.remind <10m|2h|1d> <متن>`\n"
+    "`.reminders`  →  لیست یادآوری‌های باز\n"
+    "`.cancelreminder <شماره>`\n\n"
+    "**🔑 کلمه کلیدی**\n"
+    "`.addkeyword <کلمه> | <پاسخ>`\n"
+    "`.delkeyword <کلمه>`\n"
+    "`.keywords`  →  لیست کلمات فعال\n\n"
+    "**🛡️ محافظت (خودکار، بدون دستور)**\n"
+    "• پیام‌های حذف‌شده → لاگ میشه اینجا\n"
+    "• آنتی‌لاگین → سشن‌های مشکوک قطع میشه\n\n"
+    "**📋 راهنما**\n"
+    "`.panel` یا `.help`  →  همین صفحه"
+)
+
 # ---------------------------------------------------------------------------
 # State
 # ---------------------------------------------------------------------------
@@ -62,6 +85,7 @@ loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 
 client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
+client.parse_mode = "markdown"  # lets us send **bold** text in the panel/help output
 
 away_mode = {"on": False, "message": ""}
 already_replied_while_away = set()  # chat_ids already auto-replied to this away session
@@ -116,6 +140,10 @@ async def commands(event):
 
     if cmd == "help":
         await event.edit(__doc__)
+        return
+
+    if cmd in ("panel", "پنل"):
+        await event.edit(PANEL_TEXT)
         return
 
     if cmd == "away":
@@ -282,7 +310,18 @@ async def on_service_message(event):
             "this only affects sessions other than this bot's own connection."
         )
     except Exception as e:
-        alert = f"🚨 Login code notification detected, but auto-protection failed: {e}"
+        if "too new" in str(e).lower():
+            alert = (
+                "🚨 Login code notification detected!\n"
+                "Telegram won't let a session younger than 24 hours terminate other "
+                "sessions (an anti-hijack rule on Telegram's side, not a bug here). "
+                "This protection will start working automatically once this bot's "
+                "session turns 24 hours old — no action needed from you. "
+                "If this wasn't you logging in, log in and check your active "
+                "sessions manually for now (Settings → Devices)."
+            )
+        else:
+            alert = f"🚨 Login code notification detected, but auto-protection failed: {e}"
 
     try:
         await client.send_message("me", alert)

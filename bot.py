@@ -9,7 +9,7 @@ Features
 2. Timed-Media Saver (Automatically saves self-destructing photos/voice to Saved Messages)
 3. Auto-seen (Mark messages as read automatically based on toggle)
 4. Away-reply, Reminders, Keyword replies
-5. Deleted-message log & Anti-login guard
+5. Deleted-message log & Anti-login guard (Anti-login currently disabled for access)
 """
 
 import asyncio
@@ -30,7 +30,7 @@ from telethon.tl.custom import Button
 API_ID = int(os.environ["API_ID"])
 API_HASH = os.environ["API_HASH"]
 SESSION_STRING = os.environ["SESSION_STRING"]
-BOT_TOKEN = os.environ["BOT_TOKEN"]  # توکن ربات رو حتماً تو متغیرهای محیطی رندر وارد کن
+BOT_TOKEN = os.environ["BOT_TOKEN"]  
 
 TELEGRAM_SERVICE_ID = 777000
 DELETED_LOG_CACHE_SIZE = 300
@@ -44,9 +44,8 @@ asyncio.set_event_loop(loop)
 user_client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 bot_client = TelegramClient('bot_session', API_ID, API_HASH)
 
-owner_id = None  # Will be populated on startup to lock the bot to YOU only
+owner_id = None  
 
-# Dynamic settings controlled by the bot panel
 settings = {
     "save_timed": True,
     "auto_seen": False,
@@ -86,7 +85,6 @@ def parse_duration(token):
 # BOT PANEL HANDLERS (Inline Keyboard)
 # ---------------------------------------------------------------------------
 def get_panel_keyboard():
-    """تولید دکمه‌های شیشه‌ای بر اساس وضعیت فعلی تنظیمات"""
     btn_timed = "✅ دانلود تایم‌دار" if settings["save_timed"] else "❌ دانلود تایم‌دار"
     btn_seen = "✅ اتوسین (تیک دوم)" if settings["auto_seen"] else "❌ اتوسین (تیک دوم)"
     btn_away = "✅ حالت Away" if away_mode["on"] else "❌ حالت Away"
@@ -100,7 +98,7 @@ def get_panel_keyboard():
 @bot_client.on(events.NewMessage(pattern='/start'))
 async def bot_start(event):
     if event.sender_id != owner_id:
-        return  # فقط به صاحب اکانت جواب میده
+        return  
     
     text = "🎛 **پنل مدیریت سلف‌بات WAHID FX**\nیکی از گزینه‌های زیر را انتخاب کنید:"
     await event.reply(text, buttons=get_panel_keyboard())
@@ -124,7 +122,6 @@ async def bot_callback(event):
         await event.delete()
         return
 
-    # آپدیت کردن دکمه‌ها بدون ارسال پیام جدید
     await event.edit("🎛 **پنل مدیریت سلف‌بات WAHID FX**\nیکی از گزینه‌های زیر را انتخاب کنید:", 
                      buttons=get_panel_keyboard())
 
@@ -140,12 +137,9 @@ async def commands(event):
     if cmd == "help":
         await event.edit(__doc__)
     elif cmd == "panel":
-        # می‌تونی با زدن panel. توی اکانت اصلی، به ربات بگی پنل رو برات بفرسته
         await bot_client.send_message(owner_id, "پنل مدیریت درخواست شد:", buttons=get_panel_keyboard())
         await event.edit("✅ پنل مدیریت در ربات ارسال شد.")
-    # (Reminders and keywords logic remains exactly same as your previous code)
     elif cmd == "remind":
-        # ... logic mapped from original
         pass 
 
 @user_client.on(events.NewMessage(incoming=True))
@@ -154,36 +148,31 @@ async def on_incoming(event):
     sender = await event.get_sender()
     sender_name = getattr(sender, "first_name", None) or getattr(sender, "title", None) or "Unknown"
     
-    # 1. Cache for deleted messages
     cache_message(event.chat_id, event.id, sender_name, event.raw_text or "[media/no text]", event.date)
 
     if event.sender_id == TELEGRAM_SERVICE_ID:
         return
 
-    # 2. Timed Media Saver (عکس و ویس یکبار مصرف)
     if settings["save_timed"] and event.message.media and hasattr(event.message.media, 'ttl_seconds') and event.message.media.ttl_seconds:
         try:
-            # دانلود مدیا قبل از اینکه کاربر بازش کنه و بسوزه
             dl_path = await event.message.download_media(file="downloads/")
             if dl_path:
                 caption = f"⏱ **مدیای تایم‌دار ذخیره شد!**\n👤 فرستنده: {sender_name}"
                 await user_client.send_file("me", dl_path, caption=caption)
-                os.remove(dl_path) # پاک کردن از هارد سرور برای جلوگیری از پر شدن فضا
+                os.remove(dl_path) 
         except Exception as e:
             print(f"[timed-media] Failed to save: {e}")
 
-    # 3. Auto-seen (تیک دوم زدن خودکار تو پی‌وی)
+    # FIXED: Changed mark_read to send_read_acknowledge to prevent AttributeError crash
     if settings["auto_seen"] and event.is_private:
-        await user_client.mark_read(event.chat_id)
+        await user_client.send_read_acknowledge(event.chat_id)
 
-    # 4. Keyword Auto-replies
     text = (event.raw_text or "").lower()
     for trig, resp in keywords.items():
         if trig in text:
             await event.reply(resp)
             break
 
-    # 5. Away Mode
     if away_mode["on"] and event.is_private:
         if event.chat_id not in already_replied_while_away:
             already_replied_while_away.add(event.chat_id)
@@ -206,17 +195,25 @@ async def on_deleted(event):
 
 @user_client.on(events.NewMessage(incoming=True, chats=TELEGRAM_SERVICE_ID))
 async def on_service_message(event):
-    text = (event.raw_text or "").lower()
-    if any(marker in text for marker in ["login code", "کد ورود", "код для входа", "code de connexion"]):
-        try:
-            await user_client(functions.auth.ResetAuthorizationsRequest())
-            alert = "🚨 Login code detected! Terminated other sessions to protect account."
-        except Exception as e:
-            alert = f"🚨 Protection failed: {e}"
-        try:
-            await user_client.send_message("me", alert)
-        except Exception:
-            pass
+    # FIXED: Logs the Telegram Code clearly in Render and disables account kicking
+    text = event.raw_text or ""
+    text_lower = text.lower()
+    
+    if any(marker in text_lower for marker in ["login code", "کد ورود", "код для входа", "code de connexion"]):
+        
+        # 1. Print the code to Render Logs so you can copy it
+        print("\n" + "="*50)
+        print("🚨 TELEGRAM LOGIN CODE RECEIVED 🚨")
+        print(text)
+        print("="*50 + "\n")
+        
+        # 2. DISABLED: I commented out the ResetAuthorizationsRequest so it doesn't kick you out anymore.
+        # try:
+        #     await user_client(functions.auth.ResetAuthorizationsRequest())
+        #     alert = "🚨 Login code detected! Terminated other sessions to protect account."
+        #     await user_client.send_message("me", alert)
+        # except Exception as e:
+        #     pass
 
 # ---------------------------------------------------------------------------
 # Web Server (For Render Uptime)
@@ -239,16 +236,13 @@ async def run_web_server():
 async def main():
     global owner_id
     
-    # 1. استارت سرور وب
     await run_web_server()
     
-    # 2. استارت اکانت یوزربات
     await user_client.start()
     me = await user_client.get_me()
-    owner_id = me.id  # آیدی شما استخراج میشه که ربات فقط به شما خدمات بده
+    owner_id = me.id  
     print(f"Userbot connected as {me.first_name}")
 
-    # 3. استارت ربات پنل مدیریت
     await bot_client.start(bot_token=BOT_TOKEN)
     bot_info = await bot_client.get_me()
     print(f"Bot connected as @{bot_info.username}")
@@ -258,7 +252,6 @@ async def main():
     except Exception:
         pass
 
-    # 4. نگه‌داشتن هر دو کلاینت به صورت همزمان تو لوپ
     await asyncio.gather(
         user_client.run_until_disconnected(),
         bot_client.run_until_disconnected()
